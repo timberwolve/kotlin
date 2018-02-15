@@ -53,6 +53,8 @@ dependencies {
     proguardDeps(files(firstFromJavaHomeThatExists("lib/rt.jar", "../Classes/classes.jar")))
 
     shadows(project(":kotlin-reflect-api"))
+    shadows(project(":core:metadata"))
+    shadows(project(":core:metadata.jvm"))
     shadows(project(":core:descriptors"))
     shadows(project(":core:descriptors.jvm"))
     shadows(project(":core:deserialization"))
