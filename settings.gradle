@@ -147,6 +147,7 @@ include ":kotlin-build-common",
         ":ultimate:ultimate-runner",
         ":kotlin-annotations-jvm",
         ":kotlin-annotations-android",
+        ":include:kotlin-compiler",
 
         // plugin markers:
         ':kotlin-gradle-plugin:plugin-marker',
