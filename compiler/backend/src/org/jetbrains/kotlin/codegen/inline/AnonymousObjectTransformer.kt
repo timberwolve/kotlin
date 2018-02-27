@@ -151,23 +151,27 @@ class AnonymousObjectTransformer(
 
         generateConstructorAndFields(classBuilder, allCapturedParamBuilder, constructorParamBuilder, parentRemapper, additionalFakeParams)
 
+        val isLambdaAlreadyGeneratedAndNotGoingToBeInlined = transformationInfo.oldClassName.contains("\$\$special\$\$inlined")
+
+        val hasLambdasToInline =
+            ((parentRemapper is RegeneratedLambdaFieldRemapper) && parentRemapper.recapturedLambdas.isNotEmpty()) || transformationInfo.capturedLambdasToInline.isNotEmpty()
+
         for (next in methodsToTransform) {
             // Generate state machine for
             // 1) doResume method of suspend lambda
             // 2) Suspend named function
             // Iff it captures crossinline suspend lambda
+            val generateStateMachineForLambda =
+                next.name == "doResume" && capturesCrossinlineSuspend && inliningContext.isContinuation &&
+                        !isLambdaAlreadyGeneratedAndNotGoingToBeInlined && hasLambdasToInline
+            val continuationClassName = findFakeContinuationConstructorClassName(next)
+            val generateStateMachineForNamedFunction =
+                capturesCrossinlineSuspend && !inliningContext.isContinuation && continuationClassName != null
+
             val deferringVisitor =
                 when {
-                    inliningContext.isContinuation ->
-                        if (next.name == "doResume" && capturesCrossinlineSuspend) newStateMachine(classBuilder, next)
-                        else newMethod(classBuilder, next)
-                    capturesCrossinlineSuspend -> {
-                        val continuationClassName = findFakeContinuationConstructorClassName(next)
-                        if (continuationClassName == null)
-                            newMethod(classBuilder, next)
-                        else
-                            newStateMachineForNamedFunction(classBuilder, next, continuationClassName)
-                    }
+                    generateStateMachineForLambda -> newStateMachineForLambda(classBuilder, next)
+                    generateStateMachineForNamedFunction -> newStateMachineForNamedFunction(classBuilder, next, continuationClassName!!)
                     else -> newMethod(classBuilder, next)
                 }
             val funResult = inlineMethodAndUpdateGlobalResult(parentRemapper, deferringVisitor, next, allCapturedParamBuilder, false)
@@ -435,7 +439,7 @@ class AnonymousObjectTransformer(
         }
     }
 
-    private fun newStateMachine(builder: ClassBuilder, original: MethodNode): DeferredMethodVisitor {
+    private fun newStateMachineForLambda(builder: ClassBuilder, original: MethodNode): DeferredMethodVisitor {
         return DeferredMethodVisitor(
             MethodNode(
                 original.access, original.name, original.desc, original.signature,

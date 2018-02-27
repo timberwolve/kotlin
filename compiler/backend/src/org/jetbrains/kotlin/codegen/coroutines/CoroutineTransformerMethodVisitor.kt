@@ -67,20 +67,24 @@ class CoroutineTransformerMethodVisitor(
     override fun performTransformations(methodNode: MethodNode) {
         removeFakeContinuationConstructorCall(methodNode)
 
+        replaceFakeContinuationsWithRealOnes(
+            methodNode,
+            if (isForNamedFunction) getLastParameterIndex(methodNode.desc, methodNode.access) else 0
+        )
+
+        FixStackMethodTransformer().transform(containingClassInternalName, methodNode)
+        RedundantLocalsEliminationMethodTransformer.transform(containingClassInternalName, methodNode)
+        updateMaxStack(methodNode)
+
         val suspensionPoints = collectSuspensionPoints(methodNode)
 
         // First instruction in the method node may change in case of named function
         val actualCoroutineStart = methodNode.instructions.first
 
-        FixStackMethodTransformer().transform(containingClassInternalName, methodNode)
-
         if (isForNamedFunction) {
             ReturnUnitMethodTransformer.transform(containingClassInternalName, methodNode)
 
             if (allSuspensionPointsAreTailCalls(containingClassInternalName, methodNode, suspensionPoints)) {
-                continuationIndex = getLastParameterIndex(methodNode.desc, methodNode.access)
-                replaceFakeContinuationsWithRealOnes(methodNode, continuationIndex)
-
                 dropSuspensionMarkers(methodNode, suspensionPoints)
                 return
             }
@@ -100,8 +104,6 @@ class CoroutineTransformerMethodVisitor(
 
         // Actual max stack might be increased during the previous phases
         updateMaxStack(methodNode)
-
-        replaceFakeContinuationsWithRealOnes(methodNode, continuationIndex)
 
         // Remove unreachable suspension points
         // If we don't do this, then relevant frames will not be analyzed, that is unexpected from point of view of next steps (e.g. variable spilling)
