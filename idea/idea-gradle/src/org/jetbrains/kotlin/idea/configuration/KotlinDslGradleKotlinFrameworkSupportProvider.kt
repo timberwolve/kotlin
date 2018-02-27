@@ -50,7 +50,7 @@ abstract class KotlinDslGradleKotlinFrameworkSupportProvider(
         var kotlinVersion = bundledRuntimeVersion()
         val additionalRepository = getRepositoryForVersion(kotlinVersion)
         if (isSnapshot(bundledRuntimeVersion())) {
-            kotlinVersion = "1.1-SNAPSHOT"
+            kotlinVersion = "1.2-SNAPSHOT"
         }
 
         if (additionalRepository != null) {
