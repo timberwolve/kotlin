@@ -31,10 +31,11 @@ import org.jetbrains.kotlin.js.translate.utils.TranslationUtils
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.resolve.DescriptorUtils
-import org.jetbrains.kotlin.resolve.calls.tasks.isDynamic
+import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
+import org.jetbrains.kotlin.types.isDynamic
 import org.jetbrains.kotlin.types.typeUtil.makeNullable
 import java.util.*
 
@@ -80,6 +81,17 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
                 return JsBinaryOperation(operator, coercedLeft, coercedRight)
             }
 
+            val resolvedCall = expression.getResolvedCall(context.bindingContext())
+            val appliedToDynamic =
+                resolvedCall != null &&
+                        with(resolvedCall.dispatchReceiver) {
+                            if (this != null) type.isDynamic() else false
+                        }
+
+            if (appliedToDynamic) {
+                return JsBinaryOperation(if (isNegated) JsBinaryOperator.NEQ else JsBinaryOperator.EQ, left, right)
+            }
+
             val coercedLeft = TranslationUtils.coerce(context, left, anyType)
             val coercedRight = TranslationUtils.coerce(context, right, anyType)
             val result = TopLevelFIF.KOTLIN_EQUALS.apply(coercedLeft, listOf(coercedRight), context)
@@ -99,24 +111,17 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
         }
     }
 
-    object DynamicEqualsIntrinsic: BinaryOperationIntrinsic {
-        override fun apply(expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext) =
-            JsBinaryOperation(if (expression.isNegated()) JsBinaryOperator.NEQ else JsBinaryOperator.EQ, left, right)
-    }
-
     override fun getSupportTokens() = OperatorConventions.EQUALS_OPERATIONS!!
 
     override fun getIntrinsic(descriptor: FunctionDescriptor, leftType: KotlinType?, rightType: KotlinType?): BinaryOperationIntrinsic? =
         when {
             EnumEqualsIntrinsic.isApplicable(descriptor, leftType, rightType) -> EnumEqualsIntrinsic
 
-            descriptor.isDynamic() -> DynamicEqualsIntrinsic
+                KotlinBuiltIns.isBuiltIn(descriptor) ||
+                TopLevelFIF.EQUALS_IN_ANY.test(descriptor) -> EqualsIntrinsic
 
-            KotlinBuiltIns.isBuiltIn(descriptor) ||
-                    TopLevelFIF.EQUALS_IN_ANY.test(descriptor) -> EqualsIntrinsic
-
-            else -> null
-        }
+                else -> null
+            }
 
 
     private fun KtBinaryExpression.isNegated() = getOperationToken(this) == KtTokens.EXCLEQ
