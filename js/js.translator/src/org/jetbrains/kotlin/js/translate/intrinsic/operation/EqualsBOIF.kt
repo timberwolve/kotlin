@@ -92,6 +92,11 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
             val operator = if (expression.isNegated()) JsBinaryOperator.REF_NEQ else JsBinaryOperator.REF_EQ
             return JsBinaryOperation(operator, left, right)
         }
+
+        fun isApplicable(descriptor: FunctionDescriptor, leftType: KotlinType?, rightType: KotlinType?): Boolean {
+            return DescriptorUtils.isEnumClass(descriptor.containingDeclaration) && leftType != null && rightType != null &&
+                    !TypeUtils.isNullableType(leftType) && !TypeUtils.isNullableType(rightType)
+        }
     }
 
     object DynamicEqualsIntrinsic: AbstractBinaryOperationIntrinsic() {
@@ -103,7 +108,7 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
 
     override fun getIntrinsic(descriptor: FunctionDescriptor, leftType: KotlinType?, rightType: KotlinType?): BinaryOperationIntrinsic? =
         when {
-            isEnumIntrinsicApplicable(descriptor, leftType, rightType) -> EnumEqualsIntrinsic
+            EnumEqualsIntrinsic.isApplicable(descriptor, leftType, rightType) -> EnumEqualsIntrinsic
 
             descriptor.isDynamic() -> DynamicEqualsIntrinsic
 
@@ -113,10 +118,6 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
             else -> null
         }
 
-    private fun isEnumIntrinsicApplicable(descriptor: FunctionDescriptor, leftType: KotlinType?, rightType: KotlinType?): Boolean {
-        return DescriptorUtils.isEnumClass(descriptor.containingDeclaration) && leftType != null && rightType != null &&
-               !TypeUtils.isNullableType(leftType) && !TypeUtils.isNullableType(rightType)
-    }
 
     private fun KtBinaryExpression.isNegated() = getOperationToken(this) == KtTokens.EXCLEQ
 }
