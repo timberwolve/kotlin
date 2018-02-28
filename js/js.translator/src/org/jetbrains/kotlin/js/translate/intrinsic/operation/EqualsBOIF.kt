@@ -39,7 +39,7 @@ import org.jetbrains.kotlin.types.typeUtil.makeNullable
 import java.util.*
 
 object EqualsBOIF : BinaryOperationIntrinsicFactory {
-    private object EqualsIntrinsic : AbstractBinaryOperationIntrinsic() {
+    private object EqualsIntrinsic : BinaryOperationIntrinsic {
 
         private val JS_NUMBER_PRIMITIVES =
             EnumSet.of(PrimitiveType.BYTE, PrimitiveType.SHORT, PrimitiveType.INT, PrimitiveType.DOUBLE, PrimitiveType.FLOAT)
@@ -87,7 +87,7 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
         }
     }
 
-    object EnumEqualsIntrinsic : AbstractBinaryOperationIntrinsic() {
+    object EnumEqualsIntrinsic : BinaryOperationIntrinsic {
         override fun apply(expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext): JsBinaryOperation {
             val operator = if (expression.isNegated()) JsBinaryOperator.REF_NEQ else JsBinaryOperator.REF_EQ
             return JsBinaryOperation(operator, left, right)
@@ -99,7 +99,7 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
         }
     }
 
-    object DynamicEqualsIntrinsic: AbstractBinaryOperationIntrinsic() {
+    object DynamicEqualsIntrinsic: BinaryOperationIntrinsic {
         override fun apply(expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext) =
             JsBinaryOperation(if (expression.isNegated()) JsBinaryOperator.NEQ else JsBinaryOperator.EQ, left, right)
     }
