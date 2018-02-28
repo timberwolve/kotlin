@@ -117,11 +117,11 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
         when {
             EnumEqualsIntrinsic.isApplicable(descriptor, leftType, rightType) -> EnumEqualsIntrinsic
 
-                KotlinBuiltIns.isBuiltIn(descriptor) ||
-                TopLevelFIF.EQUALS_IN_ANY.test(descriptor) -> EqualsIntrinsic
+            KotlinBuiltIns.isBuiltIn(descriptor) ||
+                    TopLevelFIF.EQUALS_IN_ANY.test(descriptor) -> EqualsIntrinsic
 
-                else -> null
-            }
+            else -> null
+        }
 
 
     private fun KtBinaryExpression.isNegated() = getOperationToken(this) == KtTokens.EXCLEQ
