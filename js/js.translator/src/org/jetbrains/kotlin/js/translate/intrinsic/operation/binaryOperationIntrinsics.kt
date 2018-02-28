@@ -26,6 +26,7 @@ import org.jetbrains.kotlin.js.translate.utils.getPrimitiveNumericComparisonInfo
 import org.jetbrains.kotlin.lexer.KtToken
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.utils.addToStdlib.firstNotNullResult
 
 interface BinaryOperationIntrinsic {
     fun apply(expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext): JsExpression
@@ -56,10 +57,9 @@ class BinaryOperationIntrinsics {
 
     private fun computeAndCache(key: IntrinsicKey): BinaryOperationIntrinsic? {
         val result = intrinsicCache.getOrPut(key) {
-            factories.find { factory ->
-                factory.getSupportTokens().contains(key.token) && factory.getIntrinsic(key.function, key.leftType, key.rightType) != null
-            }
-            NO_INTRINSIC
+            factories.firstNotNullResult { factory ->
+                if (factory.getSupportTokens().contains(key.token)) factory.getIntrinsic(key.function, key.leftType, key.rightType) else null
+            } ?: NO_INTRINSIC
         }
 
         return if (result !== NO_INTRINSIC) result else null
