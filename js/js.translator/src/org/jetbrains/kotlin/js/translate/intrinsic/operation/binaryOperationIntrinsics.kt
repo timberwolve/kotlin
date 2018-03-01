@@ -56,19 +56,17 @@ class BinaryOperationIntrinsics {
     private val factories = listOf(LongCompareToBOIF, EqualsBOIF, CompareToBOIF, AssignmentBOIF)
 
     private fun computeAndCache(key: IntrinsicKey): BinaryOperationIntrinsic? {
-        val result = intrinsicCache.getOrPut(key) {
-            factories.firstNotNullResult { factory ->
-                if (factory.getSupportTokens().contains(key.token)) factory.getIntrinsic(key.function, key.leftType, key.rightType) else null
-            } ?: NO_INTRINSIC
+        if (key in intrinsicCache) return intrinsicCache[key]
+
+        val result = factories.firstNotNullResult { factory ->
+            if (factory.getSupportTokens().contains(key.token)) {
+                factory.getIntrinsic(key.function, key.leftType, key.rightType)
+            } else null
         }
 
-        return if (result !== NO_INTRINSIC) result else null
-    }
+        intrinsicCache[key] = result
 
-    // Special object to cache the "no intrinsic" outcome
-    private object NO_INTRINSIC : BinaryOperationIntrinsic {
-        override fun apply(expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext): JsExpression =
-            throw UnsupportedOperationException("BinaryOperationIntrinsic#NO_INTRINSIC_#apply")
+        return result
     }
 }
 
