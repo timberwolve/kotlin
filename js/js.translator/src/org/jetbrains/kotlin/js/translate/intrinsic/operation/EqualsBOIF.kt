@@ -26,9 +26,8 @@ import org.jetbrains.kotlin.js.backend.ast.JsNullLiteral
 import org.jetbrains.kotlin.js.translate.context.TranslationContext
 import org.jetbrains.kotlin.js.translate.intrinsic.functions.factories.TopLevelFIF
 import org.jetbrains.kotlin.js.translate.utils.JsAstUtils
-import org.jetbrains.kotlin.js.translate.utils.PsiUtils.getOperationToken
+import org.jetbrains.kotlin.js.translate.utils.PsiUtils.isNegatedOperation
 import org.jetbrains.kotlin.js.translate.utils.TranslationUtils
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
@@ -40,12 +39,13 @@ import org.jetbrains.kotlin.types.typeUtil.makeNullable
 import java.util.*
 
 object EqualsBOIF : BinaryOperationIntrinsicFactory {
+    override fun getSupportTokens() = OperatorConventions.EQUALS_OPERATIONS!!
 
     private val JS_NUMBER_PRIMITIVES =
         EnumSet.of(PrimitiveType.BYTE, PrimitiveType.SHORT, PrimitiveType.INT, PrimitiveType.DOUBLE, PrimitiveType.FLOAT)
 
     private fun equalsIntrinsic(expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext): JsExpression {
-        val isNegated = expression.isNegated()
+        val isNegated = isNegatedOperation(expression)
         val anyType = context.currentModule.builtIns.anyType
         if (right is JsNullLiteral || left is JsNullLiteral) {
             val (subject, ktSubject) = if (right is JsNullLiteral) Pair(left, expression.left!!) else Pair(right, expression.right!!)
@@ -58,11 +58,6 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
 
         val leftType = leftKotlinType?.let { KotlinBuiltIns.getPrimitiveType(it) }
         val rightType = rightKotlinType?.let { KotlinBuiltIns.getPrimitiveType(it) }
-
-        if (leftType != null && rightType != null) {
-
-
-        }
 
         if (leftType != null && rightType != null && (
                     leftType in JS_NUMBER_PRIMITIVES && rightType in JS_NUMBER_PRIMITIVES ||
@@ -102,12 +97,10 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
         return if (isNegated) JsAstUtils.not(result) else result
     }
 
-    override fun getSupportTokens() = OperatorConventions.EQUALS_OPERATIONS!!
-
     override fun getIntrinsic(descriptor: FunctionDescriptor, leftType: KotlinType?, rightType: KotlinType?): BinaryOperationIntrinsic? =
         when {
             isEnumEqualsIntrinsicApplicable(descriptor, leftType, rightType) -> { expression, left, right, _ ->
-                val operator = if (expression.isNegated()) JsBinaryOperator.REF_NEQ else JsBinaryOperator.REF_EQ
+                val operator = if (isNegatedOperation(expression)) JsBinaryOperator.REF_NEQ else JsBinaryOperator.REF_EQ
                 JsBinaryOperation(operator, left, right)
             }
 
@@ -122,7 +115,4 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
         return DescriptorUtils.isEnumClass(descriptor.containingDeclaration) && leftType != null && rightType != null &&
                 !TypeUtils.isNullableType(leftType) && !TypeUtils.isNullableType(rightType)
     }
-
-
-    private fun KtBinaryExpression.isNegated() = getOperationToken(this) == KtTokens.EXCLEQ
 }
