@@ -7,8 +7,8 @@ inline fun foo2(crossinline x: suspend () -> Unit) {}
 
 suspend inline fun bar1(<!REDUNDANT_INLINE_SUSPEND_FUNCTION_TYPE!>x: suspend () -> Unit<!>) {}
 suspend inline fun bar2(crossinline x: suspend () -> Unit) {}
-suspend <!NOTHING_TO_INLINE!>inline<!> fun bar3(noinline x: suspend () -> Unit) {}
-suspend <!NOTHING_TO_INLINE!>inline<!> fun bar4(<!INCOMPATIBLE_MODIFIERS!>noinline<!> <!INCOMPATIBLE_MODIFIERS!>crossinline<!> x: suspend () -> Unit) {}
+suspend inline fun bar3(noinline x: suspend () -> Unit) {}
+suspend inline fun bar4(<!INCOMPATIBLE_MODIFIERS!>noinline<!> <!INCOMPATIBLE_MODIFIERS!>crossinline<!> x: suspend () -> Unit) {}
 
 suspend fun baz() {
     foo1 {
