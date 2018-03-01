@@ -36,28 +36,52 @@ import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 import org.jetbrains.kotlin.types.isDynamic
 import org.jetbrains.kotlin.types.typeUtil.makeNullable
+import org.jetbrains.kotlin.utils.addToStdlib.firstNotNullResult
 import java.util.*
+
+// Returns null when not applicable
+private typealias BinaryOperationIntrinsicPart = (expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext) -> JsExpression?
+
+private fun parts(vararg parts: BinaryOperationIntrinsicPart): BinaryOperationIntrinsicPart = { expression, left, right, context ->
+    parts.firstNotNullResult { it(expression, left, right, context) }
+}
+
+private fun composite(vararg parts: BinaryOperationIntrinsicPart, last: BinaryOperationIntrinsic): BinaryOperationIntrinsic =
+    { expression, left, right, context ->
+        parts.firstNotNullResult { it(expression, left, right, context) } ?: last(expression, left, right, context)
+    }
 
 object EqualsBOIF : BinaryOperationIntrinsicFactory {
     override fun getSupportTokens() = OperatorConventions.EQUALS_OPERATIONS!!
 
+
     private val JS_NUMBER_PRIMITIVES =
         EnumSet.of(PrimitiveType.BYTE, PrimitiveType.SHORT, PrimitiveType.INT, PrimitiveType.DOUBLE, PrimitiveType.FLOAT)
 
-    private fun equalsIntrinsic(expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext): JsExpression {
-        val isNegated = isNegatedOperation(expression)
-        val anyType = context.currentModule.builtIns.anyType
+
+    private val equalsNullIntrinsic: BinaryOperationIntrinsicPart = { expression, left, right, context ->
         if (right is JsNullLiteral || left is JsNullLiteral) {
             val (subject, ktSubject) = if (right is JsNullLiteral) Pair(left, expression.left!!) else Pair(right, expression.right!!)
-            val type = context.bindingContext().getType(ktSubject) ?: anyType
+            val type = context.bindingContext().getType(ktSubject) ?: context.currentModule.builtIns.anyType
             val coercedSubject = TranslationUtils.coerce(context, subject, type.makeNullable())
-            return TranslationUtils.nullCheck(coercedSubject, isNegated)
-        }
+            TranslationUtils.nullCheck(coercedSubject, isNegatedOperation(expression))
+        } else null
+    }
 
+    private val kotlinEqualsIntrinsic: BinaryOperationIntrinsic = { expression, left, right, context ->
+        val coercedLeft = TranslationUtils.coerce(context, left, context.currentModule.builtIns.anyType)
+        val coercedRight = TranslationUtils.coerce(context, right, context.currentModule.builtIns.anyType)
+        val result = TopLevelFIF.KOTLIN_EQUALS.apply(coercedLeft, listOf(coercedRight), context)
+        if (isNegatedOperation(expression)) JsAstUtils.not(result) else result
+    }
+
+    private val primitiveTypesIntrinsic: BinaryOperationIntrinsicPart = { expression, left, right, context ->
         val (leftKotlinType, rightKotlinType) = binaryOperationTypes(expression, context)
 
         val leftType = leftKotlinType?.let { KotlinBuiltIns.getPrimitiveType(it) }
         val rightType = rightKotlinType?.let { KotlinBuiltIns.getPrimitiveType(it) }
+
+        val isNegated = isNegatedOperation(expression)
 
         if (leftType != null && rightType != null && (
                     leftType in JS_NUMBER_PRIMITIVES && rightType in JS_NUMBER_PRIMITIVES ||
@@ -77,24 +101,19 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
 
             val coercedLeft = TranslationUtils.coerce(context, left, leftKotlinType)
             val coercedRight = TranslationUtils.coerce(context, right, rightKotlinType)
-            return JsBinaryOperation(operator, coercedLeft, coercedRight)
-        }
+            JsBinaryOperation(operator, coercedLeft, coercedRight)
+        } else null
+    }
 
+    private val dynamicIntrinsic: BinaryOperationIntrinsicPart = { expression, left, right, context ->
         val resolvedCall = expression.getResolvedCall(context.bindingContext())
-        val appliedToDynamic =
-            resolvedCall != null &&
-                    with(resolvedCall.dispatchReceiver) {
-                        if (this != null) type.isDynamic() else false
-                    }
+
+        val appliedToDynamic = resolvedCall?.dispatchReceiver?.type?.isDynamic() ?: false
 
         if (appliedToDynamic) {
-            return JsBinaryOperation(if (isNegated) JsBinaryOperator.NEQ else JsBinaryOperator.EQ, left, right)
-        }
+            JsBinaryOperation(if (isNegatedOperation(expression)) JsBinaryOperator.NEQ else JsBinaryOperator.EQ, left, right)
+        } else null
 
-        val coercedLeft = TranslationUtils.coerce(context, left, anyType)
-        val coercedRight = TranslationUtils.coerce(context, right, anyType)
-        val result = TopLevelFIF.KOTLIN_EQUALS.apply(coercedLeft, listOf(coercedRight), context)
-        return if (isNegated) JsAstUtils.not(result) else result
     }
 
     override fun getIntrinsic(descriptor: FunctionDescriptor, leftType: KotlinType?, rightType: KotlinType?): BinaryOperationIntrinsic? =
@@ -104,8 +123,8 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
                 JsBinaryOperation(operator, left, right)
             }
 
-            KotlinBuiltIns.isBuiltIn(descriptor) ||
-                    TopLevelFIF.EQUALS_IN_ANY.test(descriptor) -> ::equalsIntrinsic
+            KotlinBuiltIns.isBuiltIn(descriptor) || TopLevelFIF.EQUALS_IN_ANY.test(descriptor) ->
+                composite(equalsNullIntrinsic, primitiveTypesIntrinsic, dynamicIntrinsic, last = kotlinEqualsIntrinsic)
 
             else -> null
         }
