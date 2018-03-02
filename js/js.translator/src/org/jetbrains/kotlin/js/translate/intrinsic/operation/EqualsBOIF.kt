@@ -36,20 +36,7 @@ import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 import org.jetbrains.kotlin.types.isDynamic
 import org.jetbrains.kotlin.types.typeUtil.makeNullable
-import org.jetbrains.kotlin.utils.addToStdlib.firstNotNullResult
 import java.util.*
-
-// Returns null when not applicable
-private typealias BinaryOperationIntrinsicPart = (expression: KtBinaryExpression, left: JsExpression, right: JsExpression, context: TranslationContext) -> JsExpression?
-
-private fun parts(vararg parts: BinaryOperationIntrinsicPart): BinaryOperationIntrinsicPart = { expression, left, right, context ->
-    parts.firstNotNullResult { it(expression, left, right, context) }
-}
-
-private fun composite(vararg parts: BinaryOperationIntrinsicPart, last: BinaryOperationIntrinsic): BinaryOperationIntrinsic =
-    { expression, left, right, context ->
-        parts.firstNotNullResult { it(expression, left, right, context) } ?: last(expression, left, right, context)
-    }
 
 object EqualsBOIF : BinaryOperationIntrinsicFactory {
     override fun getSupportTokens() = OperatorConventions.EQUALS_OPERATIONS!!
@@ -59,13 +46,11 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
         EnumSet.of(PrimitiveType.BYTE, PrimitiveType.SHORT, PrimitiveType.INT, PrimitiveType.DOUBLE, PrimitiveType.FLOAT)
 
 
-    private val equalsNullIntrinsic: BinaryOperationIntrinsicPart = { expression, left, right, context ->
-        if (right is JsNullLiteral || left is JsNullLiteral) {
-            val (subject, ktSubject) = if (right is JsNullLiteral) Pair(left, expression.left!!) else Pair(right, expression.right!!)
-            val type = context.bindingContext().getType(ktSubject) ?: context.currentModule.builtIns.anyType
-            val coercedSubject = TranslationUtils.coerce(context, subject, type.makeNullable())
-            TranslationUtils.nullCheck(coercedSubject, isNegatedOperation(expression))
-        } else null
+    private val equalsNullIntrinsic: BinaryOperationIntrinsic = { expression, left, right, context ->
+        val (subject, ktSubject) = if (right is JsNullLiteral) Pair(left, expression.left!!) else Pair(right, expression.right!!)
+        val type = context.bindingContext().getType(ktSubject) ?: context.currentModule.builtIns.anyType
+        val coercedSubject = TranslationUtils.coerce(context, subject, type.makeNullable())
+        TranslationUtils.nullCheck(coercedSubject, isNegatedOperation(expression))
     }
 
     private val kotlinEqualsIntrinsic: BinaryOperationIntrinsic = { expression, left, right, context ->
@@ -75,7 +60,12 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
         if (isNegatedOperation(expression)) JsAstUtils.not(result) else result
     }
 
-    private val primitiveTypesIntrinsic: BinaryOperationIntrinsicPart = { expression, left, right, context ->
+    private fun primitiveTypes(
+        expression: KtBinaryExpression,
+        left: JsExpression,
+        right: JsExpression,
+        context: TranslationContext
+    ): JsExpression? {
         val (leftKotlinType, rightKotlinType) = binaryOperationTypes(expression, context)
 
         val leftType = leftKotlinType?.let { KotlinBuiltIns.getPrimitiveType(it) }
@@ -89,7 +79,8 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
                             leftType == PrimitiveType.LONG && rightType in JS_NUMBER_PRIMITIVES ||
                             leftType == PrimitiveType.BOOLEAN && rightType == PrimitiveType.BOOLEAN ||
                             leftType == PrimitiveType.CHAR && rightType == PrimitiveType.CHAR
-                    )) {
+                    )
+        ) {
             val useEq = leftType == PrimitiveType.LONG || rightType == PrimitiveType.LONG
 
             val operator = when {
@@ -101,20 +92,14 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
 
             val coercedLeft = TranslationUtils.coerce(context, left, leftKotlinType)
             val coercedRight = TranslationUtils.coerce(context, right, rightKotlinType)
-            JsBinaryOperation(operator, coercedLeft, coercedRight)
-        } else null
+            return JsBinaryOperation(operator, coercedLeft, coercedRight)
+        }
+
+        return null
     }
 
-    private val dynamicIntrinsic: BinaryOperationIntrinsicPart = { expression, left, right, context ->
-        val resolvedCall = expression.getResolvedCall(context.bindingContext())
-
-        val appliedToDynamic = resolvedCall?.dispatchReceiver?.type?.isDynamic() ?: false
-
-        if (appliedToDynamic) {
-            JsBinaryOperation(if (isNegatedOperation(expression)) JsBinaryOperator.NEQ else JsBinaryOperator.EQ, left, right)
-        } else null
-
-    }
+    private fun KtBinaryExpression.appliedToDynamic(context: TranslationContext) =
+        getResolvedCall(context.bindingContext())?.dispatchReceiver?.type?.isDynamic() ?: false
 
     override fun getIntrinsic(descriptor: FunctionDescriptor, leftType: KotlinType?, rightType: KotlinType?): BinaryOperationIntrinsic? =
         when {
@@ -123,8 +108,15 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
                 JsBinaryOperation(operator, left, right)
             }
 
-            KotlinBuiltIns.isBuiltIn(descriptor) || TopLevelFIF.EQUALS_IN_ANY.test(descriptor) ->
-                composite(equalsNullIntrinsic, primitiveTypesIntrinsic, dynamicIntrinsic, last = kotlinEqualsIntrinsic)
+            KotlinBuiltIns.isBuiltIn(descriptor) || TopLevelFIF.EQUALS_IN_ANY.test(descriptor) -> { expression, left, right, context ->
+                if (right is JsNullLiteral || left is JsNullLiteral) {
+                    equalsNullIntrinsic(expression, left, right, context)
+                } else primitiveTypes(expression, left, right, context) ?: if (expression.appliedToDynamic(context)) {
+                    JsBinaryOperation(if (isNegatedOperation(expression)) JsBinaryOperator.NEQ else JsBinaryOperator.EQ, left, right)
+                } else {
+                    kotlinEqualsIntrinsic(expression, left, right, context)
+                }
+            }
 
             else -> null
         }
