@@ -50,6 +50,7 @@ import org.jetbrains.kotlin.resolve.inline.InlineUtil;
 import org.jetbrains.kotlin.resolve.source.KotlinSourceElementKt;
 import org.jetbrains.kotlin.types.DynamicTypesKt;
 import org.jetbrains.kotlin.types.KotlinType;
+import org.jetbrains.kotlin.types.TypeUtils;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -155,6 +156,22 @@ public final class TranslationUtils {
     public static JsBinaryOperation nullCheck(@NotNull JsExpression expressionToCheck, boolean isNegated) {
         JsBinaryOperator operator = isNegated ? JsBinaryOperator.NEQ : JsBinaryOperator.EQ;
         return new JsBinaryOperation(operator, expressionToCheck, new JsNullLiteral());
+    }
+
+    @NotNull
+    public static JsBinaryOperation nullCheck(
+            @NotNull KtExpression ktSubject,
+            @NotNull JsExpression expressionToCheck,
+            @NotNull TranslationContext context,
+            boolean isNegated
+    ) {
+        KotlinType type = context.bindingContext().getType(ktSubject);
+        if (type == null) {
+            type = context.getCurrentModule().getBuiltIns().getAnyType();
+        }
+
+        JsExpression coercedExpression = coerce(context, expressionToCheck, TypeUtils.makeNullable(type));
+        return nullCheck(coercedExpression, isNegated);
     }
 
     @NotNull

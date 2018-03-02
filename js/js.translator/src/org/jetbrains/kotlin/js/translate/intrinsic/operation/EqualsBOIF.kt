@@ -35,7 +35,6 @@ import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 import org.jetbrains.kotlin.types.isDynamic
-import org.jetbrains.kotlin.types.typeUtil.makeNullable
 import java.util.*
 
 object EqualsBOIF : BinaryOperationIntrinsicFactory {
@@ -48,9 +47,7 @@ object EqualsBOIF : BinaryOperationIntrinsicFactory {
 
     private val equalsNullIntrinsic: BinaryOperationIntrinsic = { expression, left, right, context ->
         val (subject, ktSubject) = if (right is JsNullLiteral) Pair(left, expression.left!!) else Pair(right, expression.right!!)
-        val type = context.bindingContext().getType(ktSubject) ?: context.currentModule.builtIns.anyType
-        val coercedSubject = TranslationUtils.coerce(context, subject, type.makeNullable())
-        TranslationUtils.nullCheck(coercedSubject, isNegatedOperation(expression))
+        TranslationUtils.nullCheck(ktSubject, subject, context, isNegatedOperation(expression))
     }
 
     private val kotlinEqualsIntrinsic: BinaryOperationIntrinsic = { expression, left, right, context ->

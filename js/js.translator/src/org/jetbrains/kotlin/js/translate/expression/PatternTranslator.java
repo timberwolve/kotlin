@@ -294,7 +294,7 @@ public final class PatternTranslator extends AbstractTranslator {
             return equality(expressionToMatch, expressionToMatchAgainst);
         }
         else if (expressionToMatchAgainst instanceof JsNullLiteral) {
-            return TranslationUtils.nullCheck(expressionToMatch, false);
+            return TranslationUtils.nullCheck(subjectExpression, expressionToMatch, context(), false);
         }
         else {
             return TopLevelFIF.KOTLIN_EQUALS.apply(expressionToMatch, Collections.singletonList(expressionToMatchAgainst), context());
