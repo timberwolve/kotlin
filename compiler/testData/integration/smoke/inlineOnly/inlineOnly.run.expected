@@ -1,6 +1,6 @@
 
 ERR:
 Exception in thread "main" java.lang.IllegalStateException: my error
-	at InlineOnly.InlineOnlyKt.main(inlineOnly.kt:4)
+	at InlineOnly.InlineOnlyKt.main(inlineOnly.kt:7)
 
 Return code: 1
