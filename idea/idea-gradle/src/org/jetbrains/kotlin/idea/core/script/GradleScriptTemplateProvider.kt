@@ -47,6 +47,7 @@ import kotlin.reflect.KClass
 import kotlin.script.dependencies.Environment
 import kotlin.script.dependencies.ScriptContents
 import kotlin.script.experimental.dependencies.DependenciesResolver
+import kotlin.script.experimental.dependencies.DependenciesResolver.ResolveResult
 import kotlin.script.experimental.dependencies.ScriptDependencies
 import kotlin.script.experimental.dependencies.ScriptReport
 import kotlin.script.templates.standard.ScriptTemplateWithArgs
@@ -236,16 +237,34 @@ class GradleScriptDefinitionsContributor(private val project: Project): ScriptDe
         override fun resolve(
             scriptContents: ScriptContents,
             environment: Environment
-        ): DependenciesResolver.ResolveResult {
-            return DependenciesResolver.ResolveResult.Failure(ScriptReport("Failed to load script definitions by ${this.javaClass.name}"))
+        ): ResolveResult {
+            if (ReloadGradleTemplatesOnSync.gradleState.isSyncInProgress) {
+                return ResolveResult.Failure(ScriptReport("Highlighting is impossible during Gradle Import", ScriptReport.Severity.WARNING))
+            }
+            return ResolveResult.Failure(ScriptReport("Failed to load script definitions by ${GradleScriptDefinitionsContributor::class.java.name}"))
         }
     }
 }
 
+internal class GradleSyncState {
+    var isSyncInProgress: Boolean = false
+}
+
 class ReloadGradleTemplatesOnSync : ExternalSystemTaskNotificationListenerAdapter() {
+    companion object {
+        internal val gradleState = GradleSyncState()
+    }
+
+    override fun onStart(id: ExternalSystemTaskId, workingDir: String?) {
+        if (id.type == ExternalSystemTaskType.RESOLVE_PROJECT && id.projectSystemId == GRADLE_SYSTEM_ID) {
+            gradleState.isSyncInProgress = true
+        }
+    }
 
     override fun onEnd(id: ExternalSystemTaskId) {
         if (id.type == ExternalSystemTaskType.RESOLVE_PROJECT && id.projectSystemId == GRADLE_SYSTEM_ID) {
+            gradleState.isSyncInProgress = false
+
             val project = id.findProject() ?: return
             val gradleDefinitionsContributor = ScriptDefinitionContributor.find<GradleScriptDefinitionsContributor>(project)
             gradleDefinitionsContributor?.reloadIfNeccessary()
