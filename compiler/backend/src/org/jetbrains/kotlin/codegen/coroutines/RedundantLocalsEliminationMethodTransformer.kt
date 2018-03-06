@@ -18,13 +18,15 @@ import org.jetbrains.org.objectweb.asm.tree.*
 // Remove all of them since these locals are
 //  1) going to be spilled into continuation object
 //  2) breaking tail-call elimination
-object RedundantLocalsEliminationMethodTransformer : MethodTransformer() {
+class RedundantLocalsEliminationMethodTransformer : MethodTransformer() {
+    lateinit var internalClassName: String
     override fun transform(internalClassName: String, methodNode: MethodNode) {
-        var changed: Boolean
+        this.internalClassName = internalClassName
         do {
-            changed = removeAloadAstore(methodNode) || removeAconstNullAstore(methodNode) ||
-                    removeAloadCheckcastContinuationAstore(methodNode) || removeAloadPop(methodNode) || removeAconstNullPop(methodNode) ||
-                    removeGetstaticUnitPop(methodNode) || removeGetstaticUnitAstore(methodNode)
+            var changed = false
+            changed = simpleRemove(methodNode) || changed
+            changed = removeWithReplacement(methodNode) || changed
+            changed = removeAloadCheckcastContinuationAstore(methodNode) || changed
         } while (changed)
     }
 
@@ -36,72 +38,95 @@ object RedundantLocalsEliminationMethodTransformer : MethodTransformer() {
     // with
     //  ...
     //  GETSTATIC kotlin/Unit.INSTANCE
-    private fun removeGetstaticUnitAstore(methodNode: MethodNode): Boolean {
-        val (getstaticUnit, astore) = findSafeAstorePredecessor(methodNode) { it.isUnitInstance() } ?: return false
-
-        val index = astore.localIndex()
-        getstaticUnit as FieldInsnNode
-
-        methodNode.instructions.removeAll(listOf(getstaticUnit, astore))
-
-        methodNode.instructions.asSequence()
-            .filter { it.opcode == Opcodes.ALOAD && it.localIndex() == index }
-            .toList()
-            .forEach {
-                methodNode.instructions.set(
-                    it,
-                    FieldInsnNode(getstaticUnit.opcode, getstaticUnit.owner, getstaticUnit.name, getstaticUnit.desc)
-                )
-            }
-        return true
-    }
-
-    // Remove
-    //  GETSTATIC kotlin/Unit.INSTANCE
-    //  POP
-    private fun removeGetstaticUnitPop(methodNode: MethodNode): Boolean {
-        val (getstaticUnit, pop) = findPopPredecessor(methodNode) { it.isUnitInstance() } ?: return false
-
-        methodNode.instructions.removeAll(listOf(getstaticUnit, pop))
-        return true
-    }
-
-    // Remove
+    // or
     //  ACONST_NULL
-    //  POP
-    private fun removeAconstNullPop(methodNode: MethodNode): Boolean {
-        val (aconstnull, pop) = findPopPredecessor(methodNode) { it.opcode == Opcodes.ACONST_NULL } ?: return false
+    //  ASTORE N
+    //  ...
+    //  ALOAD N
+    // with
+    //  ...
+    //  ACONST_NULL
+    // or
+    //  ALOAD K
+    //  ASTORE N
+    //  ...
+    //  ALOAD N
+    // with
+    //  ...
+    //  ALOAD K
+    //
+    // But do not remove several at a time, since the same local (for example, ALOAD 0) might be loaded and stored multiple times in
+    // sequence, like
+    //  ALOAD 0
+    //  ASTORE 1
+    //  ALOAD 1
+    //  ASTORE 2
+    //  ALOAD 3
+    // Here, it is unsafe to replace ALOAD 3 with ALOAD 1, and then already removed ALOAD 1 with ALOAD 0.
+    private fun removeWithReplacement(
+        methodNode: MethodNode
+    ): Boolean {
+        val insns = findSafeAstorePredecessors(methodNode) {
+            it.isUnitInstance() || it.opcode == Opcodes.ACONST_NULL || it.opcode == Opcodes.ALOAD
+        }
+        insns.asIterable().firstOrNull { (pred, astore) ->
+            val index = astore.localIndex()
 
-        methodNode.instructions.removeAll(listOf(aconstnull, pop))
-        return true
+            methodNode.instructions.removeAll(listOf(pred, astore))
+
+            methodNode.instructions.asSequence()
+                .filter { it.opcode == Opcodes.ALOAD && it.localIndex() == index }
+                .toList()
+                .forEach { methodNode.instructions.set(it, pred.clone()) }
+            return true
+        }
+        return false
+    }
+
+    private fun AbstractInsnNode.clone() = when (this) {
+        is FieldInsnNode -> FieldInsnNode(opcode, owner, name, desc)
+        is VarInsnNode -> VarInsnNode(opcode, `var`)
+        is InsnNode -> InsnNode(opcode)
+        is TypeInsnNode -> TypeInsnNode(opcode, desc)
+        else -> error("clone of $this is not implemented yet")
     }
 
     // Remove
     //  ALOAD N
     //  POP
-    private fun removeAloadPop(methodNode: MethodNode): Boolean {
-        val (aload, pop) = findPopPredecessor(methodNode) { it.opcode == Opcodes.ALOAD } ?: return false
-
-        methodNode.instructions.removeAll(listOf(aload, pop))
-        return true
+    // or
+    //  ACONST_NULL
+    //  POP
+    // or
+    //  GETSTATIC kotlin/Unit.INSTANCE
+    //  POP
+    private fun simpleRemove(methodNode: MethodNode): Boolean {
+        val insns =
+            findPopPredecessors(methodNode) { it.isUnitInstance() || it.opcode == Opcodes.ACONST_NULL || it.opcode == Opcodes.ALOAD }
+        for ((pred, pop) in insns) {
+            methodNode.instructions.removeAll(listOf(pred, pop))
+        }
+        return insns.isNotEmpty()
     }
 
-    private fun findPopPredecessor(
+    private fun findPopPredecessors(
         methodNode: MethodNode,
         predicate: (AbstractInsnNode) -> Boolean
-    ): Pair<AbstractInsnNode, AbstractInsnNode>? {
+    ): Map<AbstractInsnNode, AbstractInsnNode> {
         val insns = methodNode.instructions.asSequence().filter { predicate(it) }.toList()
 
         val cfg = ControlFlowGraph.build(methodNode)
 
+        val res = hashMapOf<AbstractInsnNode, AbstractInsnNode>()
         for (insn in insns) {
-            val succs = findSuccessorsDFS(insn, cfg, methodNode)
-            val succ = succs.singleOrNull()
-            if (succ?.opcode == Opcodes.POP) {
-                return insn to succ
-            }
+            val succ = findImmediateSuccessors(insn, cfg, methodNode).singleOrNull() ?: continue
+            if (succ.opcode != Opcodes.POP) continue
+            if (insn.opcode == Opcodes.ALOAD && methodNode.localVariables.firstOrNull { it.index == insn.localIndex() } != null) continue
+            val sources = findSourceInstructions(internalClassName, methodNode, listOf(succ)).values.flatten()
+            if (sources.size != 1) continue
+            res[insn] = succ
         }
-        return null
+        return res
     }
 
     // Replace
@@ -115,101 +140,60 @@ object RedundantLocalsEliminationMethodTransformer : MethodTransformer() {
     //  ALOAD K
     //  CHECKCAST Continuation
     private fun removeAloadCheckcastContinuationAstore(methodNode: MethodNode): Boolean {
-        val (checkcast, astore) = findSafeAstorePredecessor(methodNode) {
+        val insns = findSafeAstorePredecessors(methodNode) {
             it.opcode == Opcodes.CHECKCAST &&
                     (it as TypeInsnNode).desc == CONTINUATION_ASM_TYPE.internalName &&
                     it.previous?.opcode == Opcodes.ALOAD
-        } ?: return false
-
-        val aload = checkcast.previous
-        val continuationIndex = aload.localIndex()
-        val index = astore.localIndex()
-
-        methodNode.instructions.removeAll(listOf(aload, checkcast, astore))
-
-        methodNode.instructions.asSequence()
-            .filter { it.opcode == Opcodes.ALOAD && it.localIndex() == index }
-            .toList()
-            .forEach {
-                methodNode.instructions.insertBefore(it, VarInsnNode(Opcodes.ALOAD, continuationIndex))
-                methodNode.instructions.set(it, TypeInsnNode(Opcodes.CHECKCAST, CONTINUATION_ASM_TYPE.internalName))
-            }
-        return true
-    }
-
-    // Replace
-    //  ACONST_NULL
-    //  ASTORE N
-    //  ...
-    //  ALOAD N
-    // with
-    //  ...
-    //  ACONST_NULL
-    private fun removeAconstNullAstore(methodNode: MethodNode): Boolean {
-        val (aconstnull, astore) = findSafeAstorePredecessor(methodNode) { it.opcode == Opcodes.ACONST_NULL } ?: return false
-
-        val index = astore.localIndex()
-
-        methodNode.instructions.removeAll(listOf(aconstnull, astore))
-
-        methodNode.instructions.asSequence()
-            .filter { it.opcode == Opcodes.ALOAD && it.localIndex() == index }
-            .toList()
-            .forEach { methodNode.instructions.set(it, InsnNode(Opcodes.ACONST_NULL)) }
-
-        return true
-    }
-
-    // Replace
-    //  ALOAD K
-    //  ASTORE N
-    //  ...
-    //  ALOAD N
-    // with
-    //  ...
-    //  ALOAD K
-    private fun removeAloadAstore(methodNode: MethodNode): Boolean {
-        val (aload, astore) = findSafeAstorePredecessor(methodNode) { it.opcode == Opcodes.ALOAD } ?: return false
-
-        val index = (astore as VarInsnNode).`var`
-        val replacement = (aload as VarInsnNode).`var`
-
-        methodNode.instructions.removeAll(listOf(aload, astore))
-
-        for (insn in methodNode.instructions.asSequence()) {
-            if (insn.opcode != Opcodes.ALOAD) continue
-            if ((insn as VarInsnNode).`var` != index) continue
-            insn.`var` = replacement
         }
 
-        return true
+        for ((checkcast, astore) in insns) {
+            val aload = checkcast.previous
+            val index = astore.localIndex()
+
+            methodNode.instructions.removeAll(listOf(aload, checkcast, astore))
+
+            methodNode.instructions.asSequence()
+                .filter { it.opcode == Opcodes.ALOAD && it.localIndex() == index }
+                .toList()
+                .forEach {
+                    methodNode.instructions.insertBefore(it, aload.clone())
+                    methodNode.instructions.set(it, checkcast.clone())
+                }
+        }
+        return insns.isNotEmpty()
     }
 
-    private fun findSafeAstorePredecessor(
+    private fun findSafeAstorePredecessors(
         methodNode: MethodNode,
         predicate: (AbstractInsnNode) -> Boolean
-    ): Pair<AbstractInsnNode, AbstractInsnNode>? {
+    ): Map<AbstractInsnNode, AbstractInsnNode> {
         val insns = methodNode.instructions.asSequence().filter { predicate(it) }.toList()
 
         val cfg = ControlFlowGraph.build(methodNode)
+        val res = hashMapOf<AbstractInsnNode, AbstractInsnNode>()
+        val localProcessed = BooleanArray(methodNode.maxLocals)
 
         for (insn in insns) {
-            val succs = findSuccessorsDFS(insn, cfg, methodNode)
-            if (succs.size != 1) continue
-            val succ = succs.first()
+            val succ = findImmediateSuccessors(insn, cfg, methodNode).singleOrNull() ?: continue
             if (succ.opcode != Opcodes.ASTORE) continue
-            val sameLocalAstores = methodNode.instructions.asSequence().filter {
-                it.opcode == Opcodes.ASTORE && it.localIndex() == succ.localIndex()
-            }.toList()
-            if (sameLocalAstores.size != 1) continue
-            return insn to succ
+            if (methodNode.instructions.asSequence().count {
+                    it.opcode == Opcodes.ASTORE && it.localIndex() == succ.localIndex()
+                } != 1) continue
+            if (methodNode.localVariables.firstOrNull { it.index == succ.localIndex() } != null) continue
+            val sources = findSourceInstructions(internalClassName, methodNode, listOf(succ)).values.flatten()
+            if (sources.size > 1) continue
+            res[insn] = succ
         }
 
-        return null
+        return res
     }
 
     // Find all meaningful successors of insn
-    private fun findSuccessorsDFS(insn: AbstractInsnNode, cfg: ControlFlowGraph, methodNode: MethodNode): Collection<AbstractInsnNode> {
+    private fun findImmediateSuccessors(
+        insn: AbstractInsnNode,
+        cfg: ControlFlowGraph,
+        methodNode: MethodNode
+    ): Collection<AbstractInsnNode> {
         val visited = hashSetOf<AbstractInsnNode>()
 
         fun dfs(current: AbstractInsnNode): Collection<AbstractInsnNode> {

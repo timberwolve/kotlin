@@ -199,9 +199,10 @@ class AnonymousObjectTransformer(
                 inliningContext is RegeneratedClassContext
             ) {
                 val continuationClassName = findFakeContinuationConstructorClassName(method.intermediate)
-                if (continuationClassName != null && inliningContext.continuationBuilders[continuationClassName] != null) {
-                    inliningContext.continuationBuilders[continuationClassName]!!.done()
-                    inliningContext.continuationBuilders.remove(continuationClassName)
+                if (continuationClassName != null) {
+                    inliningContext.continuationBuilders
+                        .remove(continuationClassName)
+                        ?.let(ClassBuilder::done)
                 }
             }
         }
