@@ -20,6 +20,7 @@ import com.intellij.openapi.roots.DependencyScope
 import com.intellij.openapi.roots.ExternalLibraryDescriptor
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.PsiTreeUtil
+import org.jetbrains.kotlin.idea.inspections.gradle.GradleHeuristicHelper.PRODUCTION_DEPENDENCY_STATEMENTS
 import org.jetbrains.kotlin.idea.util.application.runReadAction
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.getChildrenOfType
@@ -148,7 +149,8 @@ class KotlinBuildScriptManipulator(private val kotlinScript: KtFile) : GradleBui
 
     private fun KtBlockExpression.findCompileStdLib(): KtCallExpression? {
         return PsiTreeUtil.getChildrenOfType(this, KtCallExpression::class.java)?.find {
-            it.calleeExpression?.text == "compile" && (it.valueArguments.firstOrNull()?.getArgumentExpression()?.isKotlinStdLib() ?: false)
+            val calleeText = it.calleeExpression?.text
+            calleeText in PRODUCTION_DEPENDENCY_STATEMENTS && (it.valueArguments.firstOrNull()?.getArgumentExpression()?.isKotlinStdLib() ?: false)
         }
     }
 
