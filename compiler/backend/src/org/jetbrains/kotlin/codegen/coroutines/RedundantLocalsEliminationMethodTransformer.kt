@@ -66,7 +66,7 @@ class RedundantLocalsEliminationMethodTransformer : MethodTransformer() {
     private fun removeWithReplacement(
         methodNode: MethodNode
     ): Boolean {
-        val insns = findSafeAstorePredecessors(methodNode) {
+        val insns = findSafeAstorePredecessors(methodNode, ignoreLocalVariableTable = false) {
             it.isUnitInstance() || it.opcode == Opcodes.ACONST_NULL || it.opcode == Opcodes.ALOAD
         }
         insns.asIterable().firstOrNull { (pred, astore) ->
@@ -140,7 +140,9 @@ class RedundantLocalsEliminationMethodTransformer : MethodTransformer() {
     //  ALOAD K
     //  CHECKCAST Continuation
     private fun removeAloadCheckcastContinuationAstore(methodNode: MethodNode): Boolean {
-        val insns = findSafeAstorePredecessors(methodNode) {
+        // Here we ignore the duplicates of continuation in local variable table,
+        // Since it increases performance greatly.
+        val insns = findSafeAstorePredecessors(methodNode, ignoreLocalVariableTable = true) {
             it.opcode == Opcodes.CHECKCAST &&
                     (it as TypeInsnNode).desc == CONTINUATION_ASM_TYPE.internalName &&
                     it.previous?.opcode == Opcodes.ALOAD
@@ -165,13 +167,13 @@ class RedundantLocalsEliminationMethodTransformer : MethodTransformer() {
 
     private fun findSafeAstorePredecessors(
         methodNode: MethodNode,
+        ignoreLocalVariableTable: Boolean,
         predicate: (AbstractInsnNode) -> Boolean
     ): Map<AbstractInsnNode, AbstractInsnNode> {
         val insns = methodNode.instructions.asSequence().filter { predicate(it) }.toList()
 
         val cfg = ControlFlowGraph.build(methodNode)
         val res = hashMapOf<AbstractInsnNode, AbstractInsnNode>()
-        val localProcessed = BooleanArray(methodNode.maxLocals)
 
         for (insn in insns) {
             val succ = findImmediateSuccessors(insn, cfg, methodNode).singleOrNull() ?: continue
@@ -179,7 +181,7 @@ class RedundantLocalsEliminationMethodTransformer : MethodTransformer() {
             if (methodNode.instructions.asSequence().count {
                     it.opcode == Opcodes.ASTORE && it.localIndex() == succ.localIndex()
                 } != 1) continue
-            if (methodNode.localVariables.firstOrNull { it.index == succ.localIndex() } != null) continue
+            if (!ignoreLocalVariableTable && methodNode.localVariables.firstOrNull { it.index == succ.localIndex() } != null) continue
             val sources = findSourceInstructions(internalClassName, methodNode, listOf(succ)).values.flatten()
             if (sources.size > 1) continue
             res[insn] = succ
