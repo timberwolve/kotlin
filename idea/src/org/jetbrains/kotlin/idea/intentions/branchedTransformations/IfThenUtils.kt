@@ -21,8 +21,8 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
 import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.descriptors.VariableDescriptor
 import org.jetbrains.kotlin.idea.caches.resolve.analyze
+import org.jetbrains.kotlin.idea.caches.resolve.getResolutionFacade
 import org.jetbrains.kotlin.idea.caches.resolve.resolveToCall
 import org.jetbrains.kotlin.idea.core.replaced
 import org.jetbrains.kotlin.idea.intentions.getLeftMostReceiverExpression
@@ -31,6 +31,7 @@ import org.jetbrains.kotlin.idea.refactoring.inline.KotlinInlineValHandler
 import org.jetbrains.kotlin.idea.refactoring.introduce.introduceVariable.KotlinIntroduceVariableHandler
 import org.jetbrains.kotlin.idea.refactoring.isMultiLine
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.resolve.frontendService
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.resolve.BindingContext
@@ -39,7 +40,7 @@ import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
 import org.jetbrains.kotlin.resolve.calls.callUtil.getType
 import org.jetbrains.kotlin.resolve.calls.resolvedCallUtil.getImplicitReceiverValue
-import org.jetbrains.kotlin.resolve.calls.smartcasts.isStableValue
+import org.jetbrains.kotlin.resolve.calls.smartcasts.DataFlowValueFactory
 import org.jetbrains.kotlin.resolve.scopes.receivers.ImplicitReceiver
 import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.typeUtil.isSubtypeOf
@@ -160,9 +161,14 @@ fun KtPostfixExpression.inlineBaseExpressionIfApplicableWithPrompt(editor: Edito
 
 fun KtExpression.isStable(context: BindingContext = this.analyze()): Boolean {
     if (this is KtConstantExpression || this is KtThisExpression) return true
-    val descriptor = BindingContextUtils.extractVariableDescriptorFromReference(context, this)
-    return descriptor is VariableDescriptor &&
-            isStableValue(descriptor, DescriptorUtils.getContainingModule(descriptor))
+    val descriptor = BindingContextUtils.extractVariableDescriptorFromReference(context, this) ?: return false
+
+    val dataFlowValueFactory = this.getResolutionFacade().frontendService<DataFlowValueFactory>()
+    val dataFlowValue = dataFlowValueFactory.createDataFlowValue(
+        this, descriptor.type, context, DescriptorUtils.getContainingModule(descriptor)
+    )
+
+    return dataFlowValue.isStable
 }
 
 data class IfThenToSelectData(
