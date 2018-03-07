@@ -322,9 +322,12 @@ task installTeamcityReporter(type: NpmTask, dependsOn: [populateNodeModules]) {
     args = ['install', 'mocha-teamcity-reporter']
 }
 
-task runMocha(type: NodeTask, dependsOn: [compileTestKotlin2Js, populateNodeModules, installMocha]) {
+task runMocha(type: NodeTask) {
+    dependsOn(testClasses)
+    dependsOn(tasks.getByPath(':kotlin-test:kotlin-test-js:testClasses'))
+    dependsOn(populateNodeModules, installMocha)
     script = file("${buildDir}/node_modules/mocha/bin/mocha")
-    args = [jsTestOutputFile]
+    args = [jsTestOutputFile, kotlinTestJsTestOutputFile]
 
     if (project.hasProperty("teamcity")) {
         dependsOn installTeamcityReporter
@@ -333,6 +336,9 @@ task runMocha(type: NodeTask, dependsOn: [compileTestKotlin2Js, populateNodeModu
         execOverrides {
             it.ignoreExitValue = true
         }
+    }
+    else {
+        args = ['--reporter', "min"] + args
     }
 }
 
