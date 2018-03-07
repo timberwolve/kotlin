@@ -21,6 +21,8 @@ import org.jetbrains.kotlin.codegen.FunctionGenerationStrategy
 import org.jetbrains.kotlin.codegen.binding.CodegenBinding
 import org.jetbrains.kotlin.codegen.state.GenerationState
 import org.jetbrains.kotlin.config.JVMConstructorCallNormalizationMode
+import org.jetbrains.kotlin.config.LanguageVersionSettings
+import org.jetbrains.kotlin.config.languageVersionSettings
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.psi.KtFunction
@@ -41,6 +43,7 @@ class SuspendFunctionGenerationStrategy(
 
     private lateinit var transformer: CoroutineTransformerMethodVisitor
     private lateinit var codegen: ExpressionCodegen
+    private val languageVersionSettings: LanguageVersionSettings = state.configuration.languageVersionSettings
 
     private val classBuilderForCoroutineState by lazy {
         state.factory.newVisitor(
@@ -63,7 +66,8 @@ class SuspendFunctionGenerationStrategy(
                 element = declaration,
                 shouldPreserveClassInitialization = constructorCallNormalizationMode.shouldPreserveClassInitialization,
                 needDispatchReceiver = originalSuspendDescriptor.dispatchReceiverParameter != null,
-                internalNameForDispatchReceiver = containingClassInternalNameOrNull()
+                internalNameForDispatchReceiver = containingClassInternalNameOrNull(),
+                languageVersionSettings = languageVersionSettings
         ).also {
             transformer = it
         }

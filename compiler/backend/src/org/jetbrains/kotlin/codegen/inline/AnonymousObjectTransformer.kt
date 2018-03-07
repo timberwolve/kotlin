@@ -20,7 +20,7 @@ import com.intellij.util.ArrayUtil
 import org.jetbrains.kotlin.codegen.AsmUtil
 import org.jetbrains.kotlin.codegen.ClassBuilder
 import org.jetbrains.kotlin.codegen.StackValue
-import org.jetbrains.kotlin.codegen.coroutines.COROUTINE_IMPL_ASM_TYPE
+import org.jetbrains.kotlin.codegen.coroutines.coroutineImplAsmType
 import org.jetbrains.kotlin.codegen.serialization.JvmStringTable
 import org.jetbrains.kotlin.codegen.writeKotlinMetadata
 import org.jetbrains.kotlin.load.java.JvmAnnotationNames
@@ -52,6 +52,7 @@ class AnonymousObjectTransformer(
     private var sourceInfo: String? = null
     private var debugInfo: String? = null
     private lateinit var sourceMapper: SourceMapper
+    private val languageVersionSettings = inliningContext.state.languageVersionSettings
 
     override fun doTransform(parentRemapper: FieldRemapper): InlineResult {
         val innerClassNodes = ArrayList<InnerClassNode>()
@@ -62,7 +63,7 @@ class AnonymousObjectTransformer(
         createClassReader().accept(object : ClassVisitor(API, classBuilder.visitor) {
             override fun visit(version: Int, access: Int, name: String, signature: String?, superName: String, interfaces: Array<String>) {
                 classBuilder.defineClass(null, version, access, name, signature, superName, interfaces)
-                if (COROUTINE_IMPL_ASM_TYPE.internalName == superName) {
+                if (coroutineImplAsmType(languageVersionSettings).internalName == superName) {
                     inliningContext.isContinuation = true
                 }
             }

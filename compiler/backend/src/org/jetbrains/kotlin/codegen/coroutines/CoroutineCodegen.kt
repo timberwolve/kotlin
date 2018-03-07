@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.codegen.binding.CodegenBinding
 import org.jetbrains.kotlin.codegen.context.ClosureContext
 import org.jetbrains.kotlin.codegen.context.MethodContext
 import org.jetbrains.kotlin.codegen.serialization.JvmSerializerExtension
+import org.jetbrains.kotlin.config.LanguageVersionSettings
 import org.jetbrains.kotlin.coroutines.isSuspendLambda
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.annotations.Annotations
@@ -54,6 +55,7 @@ abstract class AbstractCoroutineCodegen(
         outerExpressionCodegen.parentCodegen, classBuilder
 ) {
     protected val classDescriptor = closureContext.contextDescriptor
+    protected val languageVersionSettings = outerExpressionCodegen.state.languageVersionSettings
 
     protected val doResumeDescriptor =
             SimpleFunctionDescriptorImpl.create(
@@ -86,7 +88,7 @@ abstract class AbstractCoroutineCodegen(
 
     override fun generateConstructor(): Method {
         val args = calculateConstructorParameters(typeMapper, closure, asmType)
-        val argTypes = args.map { it.fieldType }.plus(CONTINUATION_ASM_TYPE).toTypedArray()
+        val argTypes = args.map { it.fieldType }.plus(continuationAsmType(languageVersionSettings)).toTypedArray()
 
         val constructor = Method("<init>", Type.VOID_TYPE, argTypes)
         val mv = v.newMethod(
@@ -105,9 +107,9 @@ abstract class AbstractCoroutineCodegen(
             iv.load(argTypes.map { it.size }.sum(), AsmTypes.OBJECT_TYPE)
 
             val superClassConstructorDescriptor = Type.getMethodDescriptor(
-                    Type.VOID_TYPE,
-                    Type.INT_TYPE,
-                    CONTINUATION_ASM_TYPE
+                Type.VOID_TYPE,
+                Type.INT_TYPE,
+                continuationAsmType(languageVersionSettings)
             )
             iv.invokespecial(superClassAsmType.internalName, "<init>", superClassConstructorDescriptor, false)
 
@@ -205,7 +207,7 @@ class CoroutineCodegenForLambda private constructor(
                 v.thisName,
                 createCoroutineDescriptor.name.identifier,
                 Type.getMethodDescriptor(
-                        CONTINUATION_ASM_TYPE,
+                        continuationAsmType(languageVersionSettings),
                         *parameterTypes.toTypedArray()
                 ),
                 false
@@ -306,7 +308,8 @@ class CoroutineCodegenForLambda private constructor(
                                 element = element,
                                 shouldPreserveClassInitialization = constructorCallNormalizationMode.shouldPreserveClassInitialization,
                                 containingClassInternalName = v.thisName,
-                                isForNamedFunction = false
+                                isForNamedFunction = false,
+                                languageVersionSettings = languageVersionSettings
                         )
                     }
 
@@ -390,9 +393,9 @@ class CoroutineCodegenForNamedFunction private constructor(
                                 StackValue.LOCAL_0
                         ).store(StackValue.local(2, AsmTypes.JAVA_THROWABLE_TYPE), codegen.v)
 
-                        LABEL_FIELD_STACK_VALUE.store(
+                        labelFieldStackValue(languageVersionSettings).store(
                                 StackValue.operation(Type.INT_TYPE) {
-                                    LABEL_FIELD_STACK_VALUE.put(Type.INT_TYPE, it)
+                                    labelFieldStackValue(languageVersionSettings).put(Type.INT_TYPE, it)
                                     it.iconst(1 shl 31)
                                     it.or(Type.INT_TYPE)
                                 },
@@ -447,7 +450,7 @@ class CoroutineCodegenForNamedFunction private constructor(
         )
 
         mv.visitCode()
-        LABEL_FIELD_STACK_VALUE.put(Type.INT_TYPE, InstructionAdapter(mv))
+        labelFieldStackValue(languageVersionSettings).put(Type.INT_TYPE, InstructionAdapter(mv))
         mv.visitInsn(Opcodes.IRETURN)
         mv.visitEnd()
     }
@@ -463,7 +466,7 @@ class CoroutineCodegenForNamedFunction private constructor(
         )
 
         mv.visitCode()
-        LABEL_FIELD_STACK_VALUE.store(StackValue.local(1, Type.INT_TYPE), InstructionAdapter(mv))
+        labelFieldStackValue(languageVersionSettings).store(StackValue.local(1, Type.INT_TYPE), InstructionAdapter(mv))
         mv.visitInsn(Opcodes.RETURN)
         mv.visitEnd()
     }
@@ -476,13 +479,13 @@ class CoroutineCodegenForNamedFunction private constructor(
         }
     }
 
-    companion object {
-        private val LABEL_FIELD_STACK_VALUE =
-                StackValue.field(
-                        FieldInfo.createForHiddenField(COROUTINE_IMPL_ASM_TYPE, Type.INT_TYPE, COROUTINE_LABEL_FIELD_NAME),
-                        StackValue.LOCAL_0
-                )
+    private fun labelFieldStackValue(languageVersionSettings: LanguageVersionSettings) =
+        StackValue.field(
+            FieldInfo.createForHiddenField(coroutineImplAsmType(languageVersionSettings), Type.INT_TYPE, COROUTINE_LABEL_FIELD_NAME),
+            StackValue.LOCAL_0
+        )
 
+    companion object {
         fun create(
                 cv: ClassBuilder,
                 expressionCodegen: ExpressionCodegen,
