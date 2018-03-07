@@ -1098,6 +1098,12 @@ public class BytecodeTextTestGenerated extends AbstractBytecodeTextTest {
             doTest(fileName);
         }
 
+        @TestMetadata("returnUnitInLambda.kt")
+        public void testReturnUnitInLambda() throws Exception {
+            String fileName = KotlinTestUtils.navigationMetadata("compiler/testData/codegen/bytecodeText/coroutines/returnUnitInLambda.kt");
+            doTest(fileName);
+        }
+
         @TestMetadata("varValueConflictsWithTable.kt")
         public void testVarValueConflictsWithTable() throws Exception {
             String fileName = KotlinTestUtils.navigationMetadata("compiler/testData/codegen/bytecodeText/coroutines/varValueConflictsWithTable.kt");
