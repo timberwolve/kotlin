@@ -63,7 +63,6 @@ import com.intellij.util.io.URLUtil
 import com.intellij.util.lang.UrlClassLoader
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.asJava.KotlinAsJavaSupport
-import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
 import org.jetbrains.kotlin.asJava.finder.JavaElementFinder
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
@@ -132,12 +131,10 @@ class KotlinCoreEnvironment private constructor(
                 registerService(CoreJavaFileManager::class.java, ServiceManager.getService(this, JavaFileManager::class.java) as CoreJavaFileManager)
 
                 val traceHolder = CliTraceHolder()
-                val cliLightClassGenerationSupport = CliLightClassGenerationSupport(traceHolder)
                 val kotlinAsJavaSupport = CliKotlinAsJavaSupport(this, traceHolder)
-                registerService(LightClassGenerationSupport::class.java, cliLightClassGenerationSupport)
-                registerService(CliLightClassGenerationSupport::class.java, cliLightClassGenerationSupport)
                 registerService(KotlinAsJavaSupport::class.java, kotlinAsJavaSupport)
                 registerService(CodeAnalyzerInitializer::class.java, traceHolder)
+                registerService(CliTraceHolder::class.java, traceHolder)
 
                 registerService(ExternalAnnotationsManager::class.java, MockExternalAnnotationsManager())
                 registerService(InferredAnnotationsManager::class.java, MockInferredAnnotationsManager())
@@ -307,7 +304,7 @@ class KotlinCoreEnvironment private constructor(
             bootClasspath: List<File>? = null,
             sourcePath: List<File>? = null
     ): Boolean {
-        return JavacWrapperRegistrar.registerJavac(projectEnvironment.project, configuration, javaFiles, kotlinFiles, arguments, bootClasspath, sourcePath, LightClassGenerationSupport.getInstance(project))
+        return JavacWrapperRegistrar.registerJavac(projectEnvironment.project, configuration, javaFiles, kotlinFiles, arguments, bootClasspath, sourcePath, ServiceManager.getService(project, CliTraceHolder::class.java))
     }
 
     private val applicationEnvironment: CoreApplicationEnvironment

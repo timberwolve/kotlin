@@ -16,9 +16,9 @@
 
 package org.jetbrains.kotlin.cli.jvm.javac
 
-import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
 import org.jetbrains.kotlin.asJava.findFacadeClass
 import org.jetbrains.kotlin.asJava.toLightClass
+import org.jetbrains.kotlin.cli.jvm.compiler.CliTraceHolder
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.javac.JavacWrapperKotlinResolver
 import org.jetbrains.kotlin.javac.resolve.MockKotlinField
@@ -29,7 +29,7 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.descriptorUtil.classId
 
-class JavacWrapperKotlinResolverImpl(private val lightClassGenerationSupport: LightClassGenerationSupport) : JavacWrapperKotlinResolver {
+class JavacWrapperKotlinResolverImpl(private val traceHolder: CliTraceHolder) : JavacWrapperKotlinResolver {
 
     private val supersCache = hashMapOf<KtClassOrObject, List<ClassId>>()
 
@@ -38,7 +38,7 @@ class JavacWrapperKotlinResolverImpl(private val lightClassGenerationSupport: Li
             return supersCache[classOrObject]!!
         }
 
-        val classDescriptor = lightClassGenerationSupport.analyze(classOrObject).get(BindingContext.CLASS, classOrObject) ?: return emptyList()
+        val classDescriptor = traceHolder.bindingContext.get(BindingContext.CLASS, classOrObject) ?: return emptyList()
         val classIds = classDescriptor.defaultType.constructor.supertypes
                 .mapNotNull { (it.constructor.declarationDescriptor as? ClassDescriptor)?.classId }
         supersCache[classOrObject] = classIds

@@ -18,9 +18,9 @@ package org.jetbrains.kotlin.cli.jvm.javac
 
 import com.intellij.mock.MockProject
 import com.sun.tools.javac.util.Context
-import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity.ERROR
+import org.jetbrains.kotlin.cli.jvm.compiler.CliTraceHolder
 import org.jetbrains.kotlin.cli.jvm.config.jvmClasspathRoots
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.config.JVMConfigurationKeys
@@ -40,7 +40,7 @@ object JavacWrapperRegistrar {
             arguments: Array<String>?,
             bootClasspath: List<File>?,
             sourcePath: List<File>?,
-            lightClassGenerationSupport: LightClassGenerationSupport
+            traceHolder: CliTraceHolder
     ): Boolean {
         val messageCollector = configuration.getNotNull(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY)
 
@@ -58,7 +58,7 @@ object JavacWrapperRegistrar {
         val jvmClasspathRoots = configuration.jvmClasspathRoots
         val outputDirectory = configuration.get(JVMConfigurationKeys.OUTPUT_DIRECTORY)
         val compileJava = configuration.getBoolean(JVMConfigurationKeys.COMPILE_JAVA)
-        val kotlinSupertypesResolver = JavacWrapperKotlinResolverImpl(lightClassGenerationSupport)
+        val kotlinSupertypesResolver = JavacWrapperKotlinResolverImpl(traceHolder)
 
         val javacWrapper = JavacWrapper(javaFiles, kotlinFiles, arguments, jvmClasspathRoots, bootClasspath, sourcePath,
                                         kotlinSupertypesResolver, compileJava, outputDirectory, context)
