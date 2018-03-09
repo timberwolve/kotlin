@@ -15,9 +15,7 @@ import com.intellij.util.SmartList
 import com.intellij.util.containers.ContainerUtil
 import org.jetbrains.kotlin.asJava.KotlinAsJavaSupport
 import org.jetbrains.kotlin.asJava.classes.KtLightClass
-import org.jetbrains.kotlin.asJava.classes.KtLightClassForFacade
-import org.jetbrains.kotlin.asJava.classes.KtLightClassForScript
-import org.jetbrains.kotlin.asJava.classes.KtLightClassForSourceDeclaration
+import org.jetbrains.kotlin.asJava.classes.KtStubLightClass
 import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
 import org.jetbrains.kotlin.descriptors.PackageViewDescriptor
 import org.jetbrains.kotlin.fileClasses.javaFileFacadeFqName
@@ -35,18 +33,15 @@ import org.jetbrains.kotlin.resolve.scopes.MemberScope
 class CliKotlinAsJavaSupport(
     project: Project,
     private val traceHolder: CliTraceHolder
-): KotlinAsJavaSupport() {
+) : KotlinAsJavaSupport() {
     private val psiManager = PsiManager.getInstance(project)
 
     override fun getFacadeClassesInPackage(packageFqName: FqName, scope: GlobalSearchScope): Collection<PsiClass> {
         return findFacadeFilesInPackage(packageFqName, scope)
             .groupBy { it.javaFileFacadeFqName }
             .mapNotNull {
-                KtLightClassForFacade.createForFacade(
-                    psiManager,
-                    it.key,
-                    scope,
-                    it.value
+                KtStubLightClass(
+                    psiManager
                 )
             }
     }
@@ -68,11 +63,8 @@ class CliKotlinAsJavaSupport(
         if (filesForFacade.isEmpty()) return emptyList()
 
         return listOfNotNull<PsiClass>(
-            KtLightClassForFacade.createForFacade(
-                psiManager,
-                facadeFqName,
-                scope,
-                filesForFacade
+            KtStubLightClass(
+                psiManager
             )
         )
     }
@@ -139,10 +131,10 @@ class CliKotlinAsJavaSupport(
     }
 
     override fun getLightClass(classOrObject: KtClassOrObject): KtLightClass? =
-        KtLightClassForSourceDeclaration.create(classOrObject)
+        KtStubLightClass(psiManager)
 
-    override fun getLightClassForScript(script: KtScript): KtLightClassForScript? =
-        KtLightClassForScript.create(script)
+    override fun getLightClassForScript(script: KtScript): KtLightClass? =
+        KtStubLightClass(psiManager)
 
 
     override fun findClassOrObjectDeclarations(fqName: FqName, searchScope: GlobalSearchScope): Collection<KtClassOrObject> {
@@ -154,8 +146,7 @@ class CliKotlinAsJavaSupport(
                 )
             ) {
                 element
-            }
-            else null
+            } else null
         }
     }
 
